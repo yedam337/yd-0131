@@ -1,65 +1,68 @@
-import streamlit as st
+import json
+from pathlib import Path
+
 import pandas as pd
 import plotly.express as px
-import os
+import streamlit as st
 
-st.set_page_config(layout='wide')
 
-st.title('글로벌 COVID-19 시계열 분석 앱')
+st.set_page_config(page_title="서울시 행정동별 출동건수", layout="wide")
+
+DATA_PATH = Path("data/dong_emergency_count.geojson")
+CITY_HALL = {"lat": 37.5663, "lon": 126.9779}
+
 
 @st.cache_data
-def load_data():
-    # Streamlit Cloud 환경에서 파일을 찾을 수 있도록 경로를 설정합니다.
-    # 실제 kagglehub 경로 대신, 파일을 앱과 함께 배포했다고 가정합니다.
-    # 예를 들어, 'full_grouped.csv'가 app.py와 같은 디렉토리에 있다면 아래와 같이 로드합니다.
-    # 데이터셋이 매우 커서 Streamlit 앱에 직접 포함하기 어렵다면, 
-    # Google Cloud Storage나 다른 클라우드 스토리지에서 데이터를 로드하도록 코드를 수정해야 합니다.
-    try:
-        df = pd.read_csv('full_grouped.csv')
-    except FileNotFoundError:
-        st.error("데이터 파일을 찾을 수 없습니다. 'full_grouped.csv'가 앱과 같은 디렉토리에 있는지 확인하세요.")
-        st.stop()
-    
-    df['Date'] = pd.to_datetime(df['Date'])
-    return df
+def load_geojson(path: Path) -> dict:
+    """GeoJSON과 행정동 속성 데이터를 한 번만 불러온다."""
+    with path.open(encoding="utf-8") as file:
+        return json.load(file)
 
-df = load_data()
 
-# 국가 선택 드롭다운
-country_list = ['All Countries'] + sorted(df['Country/Region'].unique().tolist())
-selected_country = st.sidebar.selectbox('국가를 선택하세요:', country_list)
+geojson = load_geojson(DATA_PATH)
+records = pd.DataFrame(feature["properties"] for feature in geojson["features"])
+records["emergency_count"] = pd.to_numeric(records["emergency_count"])
 
-if selected_country == 'All Countries':
-    # 모든 국가의 합계 데이터
-    plot_df = df.groupby('Date')[['Confirmed', 'Deaths', 'Recovered', 'Active']].sum().reset_index()
-    title_prefix = '전세계'
+st.title("서울시 행정동별 출동건수")
+st.caption("행정동을 가리키면 행정동명과 행정동 코드를 확인할 수 있습니다.")
+
+show_mokdong_only = st.toggle("목동만 보기", value=False)
+
+# '목1동'부터 '목5동'까지를 정확히 선택해 '면목동'을 제외한다.
+if show_mokdong_only:
+    map_records = records[records["ADM_NM"].str.match(r"^목[1-5]동$")].copy()
+    st.caption("목동 5개 행정동을 표시하고 있습니다.")
 else:
-    # 선택된 국가의 데이터
-    plot_df = df[df['Country/Region'] == selected_country].reset_index(drop=True)
-    title_prefix = selected_country
+    map_records = records.copy()
 
-# 'Active' 케이스 계산 (데이터에 이미 'Active' 컬럼이 있는 경우 제외)
-if 'Active' not in plot_df.columns:
-    plot_df['Active'] = plot_df['Confirmed'] - plot_df['Deaths'] - plot_df['Recovered']
+fig = px.choropleth_mapbox(
+    map_records,
+    geojson=geojson,
+    locations="ADM_CD",
+    featureidkey="properties.ADM_CD",
+    color="emergency_count",
+    color_continuous_scale=[(0, "#ffffff"), (1, "#e31a1c")],
+    range_color=(records["emergency_count"].min(), records["emergency_count"].max()),
+    custom_data=["ADM_NM", "ADM_CD", "emergency_count"],
+    opacity=0.78,
+    center=CITY_HALL,
+    zoom=10.5,
+    mapbox_style="carto-positron",
+    labels={"emergency_count": "출동건수"},
+)
 
+fig.update_traces(
+    hovertemplate=(
+        "<b>%{customdata[0]}</b><br>"
+        "행정동 코드: %{customdata[1]}<br>"
+        "출동건수: %{customdata[2]:,.0f}<extra></extra>"
+    ),
+    marker_line_width=0.5,
+    marker_line_color="#666666",
+)
+fig.update_layout(
+    margin={"r": 0, "t": 0, "l": 0, "b": 0},
+    coloraxis_colorbar={"title": "출동건수"},
+)
 
-# Plotly Express를 사용하여 시계열 그래프 생성
-afghanistan_melted = plot_df.melt(id_vars=['Date'], 
-                                      value_vars=['Confirmed', 'Deaths', 'Recovered', 'Active'],
-                                      var_name='Case Type', 
-                                      value_name='Count')
-
-fig = px.line(afghanistan_melted, 
-              x='Date', 
-              y='Count', 
-              color='Case Type',
-              title=f'{title_prefix} COVID-19 확진, 사망, 회복, 격리 환자 추이',
-              labels={'Date': '날짜', 'Count': '환자 수', 'Case Type': '유형'})
-
-fig.update_layout(hovermode='x unified')
-st.plotly_chart(fig, use_container_width=True)
-"""
-
-# Colab 환경에서 파일로 저장
-with open('app.py', 'w', encoding='utf-8') as f:
-    f.write(streamlit_app_code_full)
+st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
