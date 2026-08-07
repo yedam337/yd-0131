@@ -25,7 +25,7 @@ TYPE_ORDER = ["아파트", "단독주택", "다세대주택", "연립주택"]
 AGE_COLORS = {"20년~30년미만": "#FFB3A7", "30년 이상": "#E94F4F"}
 TYPE_COLORS = {"아파트":"#8D7AE8", "단독주택":"#88C7E8", "다세대주택":"#F5A5CF", "연립주택":"#F6D86B"}
 
-st.title("🏠 서울 노후주택 · 정비·공급 탐색기")
+st.title("🏚️ 서울 노후주택 현황 및 정비 추진 계획")
 st.caption("2015–2025년 자치구별 주택 노후화와 공급 규모를 함께 살펴보고 정비·공급 검토 지역을 찾습니다.")
 ctrl1, ctrl2, ctrl3 = st.columns([2, 1, 2])
 with ctrl1: selected_gu = st.selectbox("자치구 선택", ["서울시 전체"] + sorted(aged["자치구"].unique()))
