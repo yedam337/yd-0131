@@ -1,20 +1,51 @@
-# 서울시 행정동별 출동건수 지도
+# 서울 노후주택 · 정비·공급 탐색기
 
-Plotly Choropleth map으로 행정동별 출동건수를 흰색(낮음)부터 빨간색(높음)까지 표시하는 Streamlit 앱입니다.
+서울시 자치구별 노후주택(20–30년 미만/30년 이상)과 전체 주택 수를 결합해 정비·공급 검토 지역을 탐색하는 Streamlit 대시보드입니다.
 
-## 로컬 실행
+## 포함 기능
+
+- 자치구·연도·주택유형 선택에 연동되는 지도, 막대그래프, 시계열
+- 20–30년 미만은 연한 코랄, 30년 이상은 레드로 표현한 누적 막대그래프
+- 주택유형별 공간 분포(자치구 중심점 기반), 노후화 구성, 2015–2025 추이
+- 노후주택 비율과 전체 주택 수를 결합한 탐색용 정비·공급 우선순위
+
+## Colab에서 전처리
+
+1. `preprocess.py`를 Colab에 업로드하거나 GitHub 저장소를 clone합니다.
+2. 두 Excel 원자료를 `data/raw/`에 올립니다.
+3. 아래를 실행합니다.
+
+```python
+!pip -q install pandas openpyxl
+!python preprocess.py --raw-dir data/raw --output-dir data/processed
+```
+
+## 로컬/Streamlit 실행
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-브라우저에서 열린 지도는 처음에 서울시청을 중심으로 표시됩니다. 상단의 **목동만 보기** 토글을 켜면 목1동~목5동만 볼 수 있습니다.
+## GitHub 게시
 
-## Streamlit Community Cloud 배포
+```bash
+git init
+git add .
+git commit -m "Create Seoul aging housing dashboard"
+git branch -M main
+git remote add origin https://github.com/사용자명/저장소명.git
+git push -u origin main
+```
 
-1. 이 폴더 전체를 새 GitHub 저장소에 올립니다. `data/dong_emergency_count.geojson`도 반드시 포함하세요.
-2. [Streamlit Community Cloud](https://share.streamlit.io/)에서 **Create app**을 선택합니다.
-3. 저장소, 브랜치, Main file path로 `app.py`를 지정한 후 배포합니다.
+Streamlit Community Cloud에서는 이 저장소를 선택하고 `app.py`를 엔트리포인트로 지정합니다.
+
+## 데이터 출처
+
+- 서울특별시 통계, [건축 경과연수별 주택현황](https://stat.eseoul.go.kr/statHtml/statHtml.do?orgId=201&tblId=DT_201004_K010008&conn_path=I3), 통계표 ID `DT_201004_K010008`
+- 서울특별시 통계, [주택종류별 주택](https://stat.eseoul.go.kr/statHtml/statHtml.do?orgId=201&tblId=DT_201004_K010006&conn_path=I3), 통계표 ID `DT_201004_K010006`
+
+## 해석 유의사항
+
+이 앱의 우선순위는 정책 의사결정용 확정 판정이 아닌 1차 탐색 지표입니다. 실제 재개발·재건축 또는 신규 공급 대상 선정에는 정비계획, 안전진단, 사업성, 인구·가구 변화, 공공시설 및 토지이용 조건을 추가로 검토해야 합니다.
+
