@@ -1,170 +1,93 @@
-import json
 from pathlib import Path
-
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from pyproj import Transformer
+from preprocess import GU_CENTROIDS
 
+st.set_page_config(page_title="서울 노후주택 탐색기", page_icon="🏠", layout="wide")
+st.markdown('''<style>
+@import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Nunito:wght@500;700;800&display=swap');
+html, body, [class*="css"] {font-family: 'Gowun Dodum', sans-serif;}
+.stApp {background:#EAF8FB;} h1,h2,h3 {font-family:'Nunito','Gowun Dodum',sans-serif; color:#263238;}
+div[data-testid="stMetric"] {background:#fff; border-radius:18px; padding:14px; box-shadow:0 2px 9px #b8dce344;}
+div[data-testid="stVerticalBlockBorderWrapper"] {background:#fff; border-radius:22px; border:0; box-shadow:0 2px 9px #b8dce344;}
+</style>''', unsafe_allow_html=True)
 
-st.set_page_config(page_title="서울시 행정동별 출동건수", layout="wide")
-
-CITY_HALL = {"lat": 37.5663, "lon": 126.9779}
-
-
-def find_data_file() -> Path:
-    """Streamlit Cloud와 로컬 모두에서 데이터 파일을 찾는다."""
-    app_dir = Path(__file__).resolve().parent
-    candidates = [
-        app_dir / "dong_emergency_count.geojson",  # GitHub 저장소 최상단 권장
-        app_dir / "data" / "dong_emergency_count.geojson",  # 이전 폴더 구조 지원
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    st.error(
-        "`dong_emergency_count.geojson` 파일을 찾을 수 없습니다. "
-        "GitHub 저장소의 app.py와 같은 위치에 파일을 올려 주세요."
-    )
-    st.stop()
-
-
-def find_facility_file() -> Path:
-    """소방시설 엑셀 파일을 GitHub 저장소에서 찾는다."""
-    app_dir = Path(__file__).resolve().parent
-    candidates = [
-        app_dir / "seoul_fire_facilities.xlsx",  # GitHub 배포용 권장 파일명
-        app_dir / "서울시 소방서,안전센터,구조대 위치정보.xlsx",
-        app_dir / "data" / "seoul_fire_facilities.xlsx",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    st.error(
-        "`seoul_fire_facilities.xlsx` 파일을 찾을 수 없습니다. "
-        "GitHub 저장소의 app.py와 같은 위치에 파일을 올려 주세요."
-    )
-    st.stop()
-
-
+DATA = Path(__file__).parent / "data" / "processed"
 @st.cache_data
-def load_geojson(path: Path) -> dict:
-    """GeoJSON과 행정동 속성 데이터를 한 번만 불러온다."""
-    with path.open(encoding="utf-8") as file:
-        return json.load(file)
+def load_data():
+    return (pd.read_csv(DATA / "aged_housing_by_gu.csv"), pd.read_csv(DATA / "housing_supply_by_gu.csv"),
+            pd.read_csv(DATA / "renewal_supply_priority_by_gu.csv"))
 
+aged, supply, priority = load_data()
+TYPE_ORDER = ["아파트", "단독주택", "다세대주택", "연립주택"]
+AGE_COLORS = {"20년~30년미만": "#FFB3A7", "30년 이상": "#E94F4F"}
+TYPE_COLORS = {"아파트":"#8D7AE8", "단독주택":"#88C7E8", "다세대주택":"#F5A5CF", "연립주택":"#F6D86B"}
 
-@st.cache_data
-def load_fire_facilities(path: Path) -> pd.DataFrame:
-    """EPSG:5186 평면좌표를 WGS84 경위도 좌표로 변환한다."""
-    facilities = pd.read_excel(path)
-    required_columns = {"서ㆍ센터ID", "서ㆍ센터명", "유형구분명", "X좌표", "Y좌표"}
-    missing = required_columns.difference(facilities.columns)
-    if missing:
-        raise ValueError(f"필수 열이 없습니다: {', '.join(sorted(missing))}")
+st.title("🏠 서울 노후주택 · 정비·공급 탐색기")
+st.caption("2015–2025년 자치구별 주택 노후화와 공급 규모를 함께 살펴보고 정비·공급 검토 지역을 찾습니다.")
+ctrl1, ctrl2, ctrl3 = st.columns([2, 1, 2])
+with ctrl1: selected_gu = st.selectbox("자치구 선택", ["서울시 전체"] + sorted(aged["자치구"].unique()))
+with ctrl2: year = st.select_slider("연도", options=sorted(aged["연도"].unique()), value=int(aged["연도"].max()))
+with ctrl3: types = st.multiselect("주택 유형", TYPE_ORDER, default=TYPE_ORDER)
 
-    facilities = facilities.dropna(subset=["X좌표", "Y좌표"]).copy()
-    facilities["X좌표"] = pd.to_numeric(facilities["X좌표"], errors="coerce")
-    facilities["Y좌표"] = pd.to_numeric(facilities["Y좌표"], errors="coerce")
-    facilities = facilities.dropna(subset=["X좌표", "Y좌표"])
+view_aged = aged[(aged["연도"] == year) & aged["주택유형"].isin(types)].copy()
+view_supply = supply[supply["연도"] == year]
+if selected_gu != "서울시 전체":
+    view_aged = view_aged[view_aged["자치구"] == selected_gu]
+    view_supply = view_supply[view_supply["자치구"] == selected_gu]
 
-    transformer = Transformer.from_crs("EPSG:5186", "EPSG:4326", always_xy=True)
-    facilities["lon"], facilities["lat"] = transformer.transform(
-        facilities["X좌표"].to_numpy(), facilities["Y좌표"].to_numpy()
-    )
-    facilities["지도유형"] = facilities["유형구분명"].eq("소방서").map(
-        {True: "소방서", False: "안전센터·구조대"}
-    )
-    return facilities
+old30 = view_aged.query("경과연수 == '30년 이상'")["노후주택수"].sum()
+old20 = view_aged["노후주택수"].sum()
+total_supply = view_supply["전체주택수"].sum()
+k1,k2,k3,k4 = st.columns(4)
+k1.metric("30년 이상 노후주택", f"{old30:,.0f}호")
+k2.metric("20년 이상 노후주택", f"{old20:,.0f}호")
+k3.metric("전체 주택 수", f"{total_supply:,.0f}호")
+k4.metric("노후주택 비율", f"{old20/total_supply:.1%}" if total_supply else "–")
 
+left, right = st.columns([1.15, 1])
+with left:
+    st.subheader("어디에 어떤 노후주택이 많은가?")
+    map_df = (view_aged.groupby(["자치구", "주택유형", "경과연수"], as_index=False)["노후주택수"].sum())
+    map_df[["위도", "경도"]] = map_df["자치구"].map(GU_CENTROIDS).apply(pd.Series)
+    fig_map = px.scatter_map(map_df, lat="위도", lon="경도", size="노후주택수", color="주택유형",
+        hover_name="자치구", hover_data={"경과연수":True,"노후주택수":":,","위도":False,"경도":False},
+        color_discrete_map=TYPE_COLORS, zoom=9.1, center={"lat":37.5665,"lon":126.9780}, height=450)
+    fig_map.update_layout(map_style="carto-positron", margin=dict(l=0,r=0,t=0,b=0), legend_title_text="주택 유형")
+    st.plotly_chart(fig_map, use_container_width=True)
+    st.caption("원자료의 공간 단위는 자치구입니다. 원의 크기는 노후주택 수, 색은 주택 유형입니다.")
+with right:
+    st.subheader("유형별 노후화 구성")
+    bar = px.bar(view_aged, x="자치구", y="노후주택수", color="경과연수", facet_col="주택유형",
+                 category_orders={"주택유형":TYPE_ORDER,"경과연수":["20년~30년미만","30년 이상"]},
+                 color_discrete_map=AGE_COLORS, barmode="stack", height=450)
+    bar.update_layout(margin=dict(l=10,r=10,t=35,b=5), legend_title_text="건축 경과연수")
+    bar.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+    st.plotly_chart(bar, use_container_width=True)
 
-geojson = load_geojson(find_data_file())
-records = pd.DataFrame(feature["properties"] for feature in geojson["features"])
-records["emergency_count"] = pd.to_numeric(records["emergency_count"])
+bottom_left, bottom_right = st.columns([1.35, 1])
+with bottom_left:
+    st.subheader("2015–2025 노후주택 추이")
+    trend = aged[aged["주택유형"].isin(types)]
+    if selected_gu != "서울시 전체": trend = trend[trend["자치구"] == selected_gu]
+    trend = trend.groupby(["연도", "경과연수"], as_index=False)["노후주택수"].sum()
+    line = px.line(trend, x="연도", y="노후주택수", color="경과연수", markers=True,
+                   color_discrete_map=AGE_COLORS, category_orders={"경과연수":["20년~30년미만","30년 이상"]})
+    line.update_layout(yaxis_title="주택 수(호)", xaxis_title="", legend_title_text="건축 경과연수", height=350)
+    st.plotly_chart(line, use_container_width=True)
+with bottom_right:
+    st.subheader("정비·공급 검토 우선순위")
+    score = priority[priority["연도"] == year].copy()
+    if selected_gu != "서울시 전체": score = score[score["자치구"] == selected_gu]
+    score = score.sort_values("정비공급우선지수", ascending=False)
+    donut = px.pie(score, names="자치구", values="정비공급우선지수", hole=.62,
+                   color="우선순위", color_discrete_map={"관찰":"#A9DDF0","검토":"#F6D86B","우선 검토":"#E94F4F"})
+    donut.update_layout(height=350, margin=dict(l=0,r=0,t=10,b=0), legend_title_text="판정")
+    st.plotly_chart(donut, use_container_width=True)
 
-st.title("서울시 행정동별 출동건수")
-st.caption("행정동을 가리키면 행정동명과 행정동 코드를 확인할 수 있습니다.")
+st.info("우선순위 지수는 같은 연도 자치구 간 상대 비교입니다. 노후주택 비율(60%)과 전체 주택 수가 작은 정도(40%)를 결합한 탐색용 지표이며, 실제 사업 선정에는 정비구역·안전진단·인구·토지이용 등 추가 검토가 필요합니다.")
+with st.expander("데이터 출처와 해석"):
+    st.markdown("- 서울특별시 통계: 건축 경과연수별 주택현황 (DT_201004_K010008)\n- 서울특별시 통계: 주택종류별 주택 (DT_201004_K010006)\n- 단위: 호, 빈집 포함. 원자료 기준 20년 이상 주택을 집계했습니다.")
 
-show_mokdong_only = st.toggle("목동만 보기", value=False)
-
-# '목1동'부터 '목5동'까지를 정확히 선택해 '면목동'을 제외한다.
-if show_mokdong_only:
-    map_records = records[records["ADM_NM"].str.match(r"^목[1-5]동$")].copy()
-    st.caption("목동 5개 행정동을 표시하고 있습니다.")
-else:
-    map_records = records.copy()
-
-fig = px.choropleth_mapbox(
-    map_records,
-    geojson=geojson,
-    locations="ADM_CD",
-    featureidkey="properties.ADM_CD",
-    color="emergency_count",
-    color_continuous_scale=[(0, "#ffffff"), (1, "#e31a1c")],
-    range_color=(records["emergency_count"].min(), records["emergency_count"].max()),
-    custom_data=["ADM_NM", "ADM_CD", "emergency_count"],
-    opacity=0.78,
-    center=CITY_HALL,
-    zoom=10.5,
-    mapbox_style="carto-positron",
-    labels={"emergency_count": "출동건수"},
-)
-
-fig.update_traces(
-    hovertemplate=(
-        "<b>%{customdata[0]}</b><br>"
-        "행정동 코드: %{customdata[1]}<br>"
-        "출동건수: %{customdata[2]:,.0f}<extra></extra>"
-    ),
-    marker_line_width=0.5,
-    marker_line_color="#666666",
-)
-fig.update_layout(
-    margin={"r": 0, "t": 0, "l": 0, "b": 0},
-    coloraxis_colorbar={"title": "출동건수"},
-)
-
-st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
-
-st.divider()
-st.header("서울시 소방시설 위치")
-st.caption("원본 EPSG:5186 좌표를 WGS84 경위도(EPSG:4326)로 변환해 표시합니다.")
-
-try:
-    facilities = load_fire_facilities(find_facility_file())
-except ValueError as error:
-    st.error(f"소방시설 데이터를 읽을 수 없습니다: {error}")
-    st.stop()
-
-facility_map = go.Figure()
-style_by_type = {
-    "소방서": {"color": "#e31a1c", "size": 11},
-    "안전센터·구조대": {"color": "#111111", "size": 8},
-}
-
-for facility_type, style in style_by_type.items():
-    subset = facilities[facilities["지도유형"] == facility_type]
-    facility_map.add_trace(
-        go.Scattermapbox(
-            lon=subset["lon"],
-            lat=subset["lat"],
-            mode="markers",
-            name=facility_type,
-            marker={"size": style["size"], "color": style["color"], "opacity": 0.9},
-            customdata=subset[["서ㆍ센터명", "서ㆍ센터ID", "유형구분명"]],
-            hovertemplate=(
-                "<b>%{customdata[0]}</b><br>"
-                "시설 ID: %{customdata[1]}<br>"
-                "유형: %{customdata[2]}<extra></extra>"
-            ),
-        )
-    )
-
-facility_map.update_layout(
-    mapbox={"style": "open-street-map", "center": CITY_HALL, "zoom": 10.1},
-    margin={"r": 0, "t": 0, "l": 0, "b": 0},
-    legend={"title": "시설 유형", "orientation": "h", "y": 0.02, "x": 0.01},
-    height=620,
-)
-st.plotly_chart(facility_map, use_container_width=True, config={"scrollZoom": True})
