@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from preprocess import GU_CENTROIDS
 
-st.set_page_config(page_title="서울 노후주택 탐색기", page_icon="🏠", layout="wide")
+st.set_page_config(page_title="서울 노후주택 탐색기", page_icon="🏚️", layout="wide")
 st.markdown('''<style>
 @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Nunito:wght@500;700;800&display=swap');
 html, body, [class*="css"] {font-family: 'Gowun Dodum', sans-serif;}
