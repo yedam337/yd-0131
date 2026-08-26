@@ -63,7 +63,10 @@ v=aged[aged["연도"].eq(year)&aged["주택유형"].isin(types)]
 vs=supply[supply["연도"].eq(year)]
 if gu!="서울시 전체": v=v[v["자치구"].eq(gu)];vs=vs[vs["자치구"].eq(gu)]
 
-st.divider();st.header("🗺️ #1. 서울시 노후주택의 공간적 분포 · 📊 #2. 자치구별 노후화 주택 유형 구성")
+st.divider()
+title_left,title_middle,title_right=st.columns([1,1.25,1.25])
+with title_left: st.header("🗺️ #1. 서울시 노후주택의 공간적 분포")
+with title_middle: st.header("📊 #2. 자치구별 노후화 주택 유형 구성")
 map_col,chart_20_col,chart_30_col=st.columns([1,1.25,1.25])
 
 with map_col:
@@ -88,7 +91,7 @@ with map_col:
     st.pydeck_chart(pdk.Deck(layers=layers,initial_view_state=view,
         map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
         tooltip={"html":"<b>{자치구}</b><br/>{주택유형}<br/>노후주택 수: {노후주택수}호"}),
-        use_container_width=True,height=430)
+        use_container_width=True,height=485)
     st.caption("원 크기: 노후주택 수 · 원 색상: 주택 유형")
 
 allv=aged[aged["연도"].eq(year)&aged["주택유형"].isin(types)]
