@@ -77,13 +77,13 @@ with left:
         stroked=True, get_line_color=[255,255,255,230], line_width_min_pixels=1,
     )
     layers=[layer]
-    geo_path=Path(__file__).parent/"data"/"seoul_gu_boundary.geojson"
+    geo_path=Path(__file__).parent/"data"/"seoul_outer_boundary.geojson"
     if geo_path.exists():
         try:
             boundary=json.loads(geo_path.read_text(encoding="utf-8"))
             layers.insert(0,pdk.Layer("GeoJsonLayer",boundary,stroked=True,filled=True,
-                get_fill_color=[240,248,250,10],get_line_color=[91,107,118,145],
-                get_line_width=110,line_width_min_pixels=1,pickable=False))
+                get_fill_color=[226,241,244,30],get_line_color=[71,94,105,185],
+                get_line_width=240,line_width_min_pixels=2,pickable=False))
         except (json.JSONDecodeError,UnicodeDecodeError):
             pass
     view=pdk.ViewState(latitude=37.5665, longitude=126.9780, zoom=9.7, pitch=0)
