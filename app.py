@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -62,7 +63,7 @@ v=aged[aged["연도"].eq(year)&aged["주택유형"].isin(types)]
 vs=supply[supply["연도"].eq(year)]
 if gu!="서울시 전체": v=v[v["자치구"].eq(gu)];vs=vs[vs["자치구"].eq(gu)]
 
-st.divider();st.header("#1. 서울시 노후주택의 공간적 분포")
+st.divider();st.header("🗺️ #1. 서울시 노후주택의 공간적 분포")
 left,right=st.columns([1.7,1])
 with left:
     m=v.groupby(["자치구","주택유형"],as_index=False)["노후주택수"].sum()
@@ -75,16 +76,21 @@ with left:
         get_radius="반경", get_fill_color="색상", pickable=True,
         stroked=True, get_line_color=[255,255,255,230], line_width_min_pixels=1,
     )
+    layers=[layer]
+    geo_path=Path(__file__).parent/"data"/"dong_emergency_count.geojson"
+    if geo_path.exists():
+        try:
+            boundary=json.loads(geo_path.read_text(encoding="utf-8"))
+            layers.insert(0,pdk.Layer("GeoJsonLayer",boundary,stroked=True,filled=False,
+                get_line_color=[35,52,67,210],get_line_width=160,line_width_min_pixels=2,pickable=False))
+        except (json.JSONDecodeError,UnicodeDecodeError):
+            pass
     view=pdk.ViewState(latitude=37.5665, longitude=126.9780, zoom=9.7, pitch=0)
     st.pydeck_chart(
-        pdk.Deck(
-            layers=[layer], initial_view_state=view,
+        pdk.Deck(layers=layers, initial_view_state=view,
             map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-            tooltip={"html":"<b>{자치구}</b><br/>{주택유형}<br/>노후주택 수: {노후주택수}호"},
-        ),
-        use_container_width=True,
-        height=455,
-    )
+            tooltip={"html":"<b>{자치구}</b><br/>{주택유형}<br/>노후주택 수: {노후주택수}호"}),
+        use_container_width=True,height=455)
     st.caption("참고: 원자료는 자치구 단위입니다. 원의 크기는 노후주택 수, 원의 색상은 주택 유형입니다.")
 with right:
     n30=v.loc[v["경과연수"].eq("30년 이상"),"노후주택수"].sum()
@@ -96,7 +102,7 @@ with right:
     st.metric("노후주택 비율",f"{(n30+n20)/total:.1%}" if total else "–")
 
 allv=aged[aged["연도"].eq(year)&aged["주택유형"].isin(types)]
-st.divider();st.header("#2. 자치구별 노후화 주택 유형 구성")
+st.divider();st.header("📊 #2. 자치구별 노후화 주택 유형 구성")
 l,r=st.columns(2)
 with l:
     type_20=st.radio("주택 유형",TYPES,horizontal=True,key="type_20")
@@ -105,27 +111,30 @@ with r:
     type_30=st.radio("주택 유형",TYPES,horizontal=True,key="type_30")
     st.plotly_chart(bar(allv,"30년 이상",type_30,"건축연수 30년 이상: "+type_30),use_container_width=True)
 
-st.divider();st.header("#3. 2015년~2025년 노후주택 수 추세")
+st.divider();st.header("📈 #3. 2015년~2025년 노후주택 수 추세")
 l,r=st.columns(2); trend=aged[aged["주택유형"].isin(types)]
+idx=gus.index(gu) if gu in gus else 0
+tgu=st.session_state.get("trend_gu",gus[idx])
 with l: st.plotly_chart(line(trend,"서울시 노후주택 수 추세"),use_container_width=True)
-with r:
-    idx=gus.index(gu) if gu in gus else 0
-    tgu=st.selectbox("자치구별 추세",gus,index=idx)
-    st.plotly_chart(line(trend[trend["자치구"].eq(tgu)],tgu+" 노후주택 수 추세"),use_container_width=True)
+with r: st.plotly_chart(line(trend[trend["자치구"].eq(tgu)],tgu+" 노후주택 수 추세"),use_container_width=True)
+st.selectbox("자치구별 추세",gus,index=gus.index(tgu),key="trend_gu")
 
-st.divider();st.header("#4. 정비 수요 우선 탐색 자치구")
-top=score(aged,supply).query("연도 == @year").sort_values("정비수요탐색지수",ascending=False).head(5)
+st.divider();st.header("🎯 #4. 정비 수요 우선 탐색 자치구")
+latest_year=max(years)
+all_priority=score(aged,supply).query("연도 == @latest_year").sort_values("정비수요탐색지수",ascending=False)
+scope=st.radio("도넛 차트 범위",["상위 5개 자치구","전체 25개 자치구"],horizontal=True,key="pie_scope")
+pie_data=all_priority.head(5) if scope=="상위 5개 자치구" else all_priority
 l,r=st.columns([1.25,1])
 with l:
-    f=go.Figure(go.Pie(labels=top["자치구"],values=top["정비수요탐색지수"],hole=.58,
-      marker_colors=["#D9485F","#E85D75","#F08A8D","#F6B6A6","#A8D8EA"],textinfo="label+value",texttemplate="%{label}<br>%{value:.1f}"))
-    f.update_layout(title=str(year)+"년 정비 수요 탐색지수 상위 5개 자치구",height=410,showlegend=False)
+    f=go.Figure(go.Pie(labels=pie_data["자치구"],values=pie_data["정비수요탐색지수"],hole=.58,
+      textinfo="label+value",texttemplate="%{label}<br>%{value:.1f}"))
+    f.update_layout(title=str(latest_year)+"년 "+scope+" 정비 수요 탐색지수",height=410,showlegend=False)
     st.plotly_chart(f,use_container_width=True)
 with r:
     st.subheader("지수 산정식과 해석")
     st.code("정비 수요 탐색지수 = 30년 이상 노후주택 비율의 상대순위 × 0.5 + 30년 이상 노후주택 수의 상대순위 × 0.5")
     st.caption("본 지수는 30년 이상 노후주택의 집중도(비율)와 정비 대응 물량(수)을 동등하게 반영한 탐색용 상대지수이다. 두 지표의 실증적 중요도 차이를 확인하기 어려워 5:5의 산술 평균 분석 가정을 적용하였다. 상위 5개 자치구는 법정 정비구역 혹은 사업 가능 후보지가 아니라, 추가적인 공간·사업성 조사가 우선적으로 필요한 정비 수요 탐색 지역임을 밝힌다.")
-    st.markdown("참고: 실제 정비사업 가능 여부는 노후도 외에 과소필지, 도로 접도, 호수밀도, 안전성, 정비계획 및 사업성 등을 별도로 검토해야 합니다.")
+st.caption("참고: 실제 정비사업 가능 여부는 노후도 외에 과소필지, 도로 접도, 호수밀도, 안전성, 정비계획 및 사업성 등을 별도로 검토해야 합니다.")
 
 with st.expander("데이터 출처와 해석"):
     st.markdown("""- 서울특별시 통계, [건축 경과연수별 주택현황](https://stat.eseoul.go.kr/statHtml/statHtml.do?orgId=201&tblId=DT_201004_K010008&conn_path=I3), 통계표 ID DT_201004_K010008
