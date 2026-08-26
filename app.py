@@ -77,12 +77,13 @@ with left:
         stroked=True, get_line_color=[255,255,255,230], line_width_min_pixels=1,
     )
     layers=[layer]
-    geo_path=Path(__file__).parent/"data"/"dong_emergency_count.geojson"
+    geo_path=Path(__file__).parent/"data"/"seoul_gu_boundary.geojson"
     if geo_path.exists():
         try:
             boundary=json.loads(geo_path.read_text(encoding="utf-8"))
-            layers.insert(0,pdk.Layer("GeoJsonLayer",boundary,stroked=True,filled=False,
-                get_line_color=[0,0,0,255],get_line_width=1000,line_width_min_pixels=8,pickable=False))
+            layers.insert(0,pdk.Layer("GeoJsonLayer",boundary,stroked=True,filled=True,
+                get_fill_color=[240,248,250,18],get_line_color=[0,0,0,255],
+                get_line_width=850,line_width_min_pixels=5,pickable=False))
         except (json.JSONDecodeError,UnicodeDecodeError):
             pass
     view=pdk.ViewState(latitude=37.5665, longitude=126.9780, zoom=9.7, pitch=0)
@@ -138,15 +139,15 @@ with chart_col:
     ))
     fig.update_layout(
         title=str(latest_year)+"년 "+scope+" 정비 수요 탐색지수",
-        xaxis_title="정비 수요 탐색지수",yaxis_title="",height=540,
+        xaxis_title="정비 수요 탐색지수",yaxis_title="",height=585,
         margin=dict(l=10,r=55,t=55,b=30),showlegend=False,
     )
     st.plotly_chart(fig,use_container_width=True)
 with rank_col:
-    st.subheader("# 서울시 구별 정비 수요 우선 탐색 순위")
+    st.markdown("#### # 서울시 구별 정비 수요 우선 탐색 순위")
     st.dataframe(
         all_priority[["순위","자치구","정비수요탐색지수"]].rename(columns={"정비수요탐색지수":"지수"}),
-        hide_index=True,use_container_width=True,height=515,
+        hide_index=True,use_container_width=True,height=550,
         column_config={"지수":st.column_config.NumberColumn(format="%.1f")},
     )
 with formula_col:
