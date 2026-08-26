@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import pydeck as pdk
 from preprocess import GU_CENTROIDS
 
 st.set_page_config(page_title="서울시 노후주택 정비 수요 탐색", page_icon="🏚️", layout="wide")
@@ -14,7 +15,7 @@ h1,h2,h3{font-family:'Nunito','Gowun Dodum',sans-serif;color:#263238}
 </style>""",unsafe_allow_html=True)
 
 DATA=Path(__file__).parent/"data"/"processed"
-TYPES=["아파트","단독주택","다세대주택","연립주택"]
+TYPES=["아파트","다세대주택","연립주택","단독주택"]
 TC={"아파트":"#D9485F","다세대주택":"#F08A8D","연립주택":"#F6B6A6","단독주택":"#3AA76D"}
 AC={"20년~30년미만":"#F6B6A6","30년 이상":"#D9485F"}
 
@@ -36,12 +37,10 @@ def score(aged,supply):
     s["정비수요탐색지수"]=(s["비율점수"]+s["규모점수"])/2
     return s
 
-def bar(df,age,title):
-    d=df[df["경과연수"].eq(age)]
-    f=px.bar(d,x="자치구",y="노후주택수",color="주택유형",barmode="group",
-             title=title,category_orders={"주택유형":TYPES},color_discrete_map=TC)
-    f.update_layout(xaxis_title="자치구",yaxis_title="노후주택 수(호)",legend_title_text="주택 유형",
-                    legend=dict(orientation="h",y=-.28,x=1,xanchor="right"),height=450)
+def bar(df,age,housing_type,title):
+    d=df[df["경과연수"].eq(age)&df["주택유형"].eq(housing_type)]
+    f=px.bar(d,x="자치구",y="노후주택수",title=title,color_discrete_sequence=[TC[housing_type]])
+    f.update_layout(xaxis_title="자치구",yaxis_title="노후주택 수(호)",showlegend=False,height=450)
     return f
 
 def line(df,title):
@@ -63,33 +62,29 @@ v=aged[aged["연도"].eq(year)&aged["주택유형"].isin(types)]
 vs=supply[supply["연도"].eq(year)]
 if gu!="서울시 전체": v=v[v["자치구"].eq(gu)];vs=vs[vs["자치구"].eq(gu)]
 
-st.divider();st.header("#1. 서울시 노후주택은 어디에, 무엇이 많은가?")
+st.divider();st.header("#1. 서울시 노후주택의 공간적 분포")
 left,right=st.columns([1.7,1])
 with left:
     m=v.groupby(["자치구","주택유형"],as_index=False)["노후주택수"].sum()
     m[["위도","경도"]]=m["자치구"].map(GU_CENTROIDS).apply(pd.Series)
-    f=go.Figure()
-    for housing_type in TYPES:
-        part=m[m["주택유형"].eq(housing_type)]
-        if part.empty:
-            continue
-        f.add_trace(go.Scattergeo(
-            lon=part["경도"], lat=part["위도"], mode="markers", name=housing_type,
-            text=part["자치구"]+"<br>노후주택 수: "+part["노후주택수"].map(lambda x: f"{x:,.0f}")+"호",
-            hovertemplate="%{text}<extra></extra>",
-            marker=dict(
-                size=(part["노후주택수"] / max(m["노후주택수"].max(), 1) * 34 + 8),
-                color=TC[housing_type], opacity=.78, line=dict(color="white", width=1)
-            )
-        ))
-    f.update_geos(
-        projection_type="mercator", center=dict(lat=37.5665, lon=126.978),
-        lataxis_range=[37.42,37.72], lonaxis_range=[126.75,127.2],
-        showland=True, landcolor="#F5F7F7", showocean=True, oceancolor="#E6F5FA",
-        showcountries=False, showcoastlines=False, showframe=False,
+    color_lookup={name: [int(TC[name][i:i+2], 16) for i in (1, 3, 5)] + [190] for name in TYPES}
+    m["색상"]=m["주택유형"].map(color_lookup)
+    m["반경"]=(m["노후주택수"]/max(m["노후주택수"].max(),1)*2600+550)
+    layer=pdk.Layer(
+        "ScatterplotLayer", data=m, get_position="[경도, 위도]",
+        get_radius="반경", get_fill_color="색상", pickable=True,
+        stroked=True, get_line_color=[255,255,255,230], line_width_min_pixels=1,
     )
-    f.update_layout(height=455, margin=dict(l=0,r=0,t=0,b=0), legend_title_text="주택 유형")
-    st.plotly_chart(f,use_container_width=True)
+    view=pdk.ViewState(latitude=37.5665, longitude=126.9780, zoom=9.7, pitch=0)
+    st.pydeck_chart(
+        pdk.Deck(
+            layers=[layer], initial_view_state=view,
+            map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+            tooltip={"html":"<b>{자치구}</b><br/>{주택유형}<br/>노후주택 수: {노후주택수}호"},
+        ),
+        use_container_width=True,
+        height=455,
+    )
     st.caption("참고: 원자료는 자치구 단위입니다. 원의 크기는 노후주택 수, 원의 색상은 주택 유형입니다.")
 with right:
     n30=v.loc[v["경과연수"].eq("30년 이상"),"노후주택수"].sum()
@@ -103,8 +98,12 @@ with right:
 allv=aged[aged["연도"].eq(year)&aged["주택유형"].isin(types)]
 st.divider();st.header("#2. 자치구별 노후화 주택 유형 구성")
 l,r=st.columns(2)
-with l: st.plotly_chart(bar(allv,"20년~30년미만","건축연수 20년 이상~30년 미만"),use_container_width=True)
-with r: st.plotly_chart(bar(allv,"30년 이상","건축연수 30년 이상"),use_container_width=True)
+with l:
+    type_20=st.radio("주택 유형",TYPES,horizontal=True,key="type_20")
+    st.plotly_chart(bar(allv,"20년~30년미만",type_20,"건축연수 20년 이상~30년 미만: "+type_20),use_container_width=True)
+with r:
+    type_30=st.radio("주택 유형",TYPES,horizontal=True,key="type_30")
+    st.plotly_chart(bar(allv,"30년 이상",type_30,"건축연수 30년 이상: "+type_30),use_container_width=True)
 
 st.divider();st.header("#3. 2015년~2025년 노후주택 수 추세")
 l,r=st.columns(2); trend=aged[aged["주택유형"].isin(types)]
