@@ -33,9 +33,8 @@ def score(aged,supply):
          .rename(columns={"노후주택수":"30년이상노후주택수"}))
     s=old.merge(supply,on=["연도","자치구"])
     s["30년이상노후주택비율"]=s["30년이상노후주택수"]/s["전체주택수"]
-    s["비율점수"]=s.groupby("연도")["30년이상노후주택비율"].rank(pct=True)*100
-    s["규모점수"]=s.groupby("연도")["30년이상노후주택수"].rank(pct=True)*100
-    s["정비수요탐색지수"]=(s["비율점수"]+s["규모점수"])/2
+    # 정비 수요의 집중도를 보기 위해 절대 규모 대신 노후주택 비율로 순위를 산정합니다.
+    s["정비수요탐색지수"]=s.groupby("연도")["30년이상노후주택비율"].rank(pct=True)*100
     return s
 
 def bar(df,age,housing_type,title):
@@ -126,7 +125,7 @@ metric_cols[1].metric("노후주택 비율",f"{(n30+n20)/total:.1%}" if total el
 metric_cols[2].metric("20년 이상~30년 미만 노후주택",f"{n20:,.0f}호")
 metric_cols[3].metric("30년 이상 노후주택",f"{n30:,.0f}호")
 
-st.divider();st.header("📈 #3. 2015년~2025년 노후주택 수 추세")
+st.divider();st.header("📈 #3. 2015년~2025년 노후주택 수 추세 · 자치구별 노후주택 연수구간 구성비 추이")
 l,r=st.columns(2); trend=aged[aged["주택유형"].isin(types)]
 idx=gus.index(gu) if gu in gus else 0
 tgu=st.session_state.get("trend_gu",gus[idx])
@@ -157,7 +156,7 @@ with chart_col:
         hovertemplate="<b>%{customdata[1]}</b><br>순위: %{customdata[0]}위<br>탐색지수: %{x:.1f}<extra></extra>",
     ))
     fig.update_layout(
-        title=str(latest_year)+"년 "+scope+" 정비 수요 탐색지수",
+        title=str(latest_year)+"년 "+scope+" 30년 이상 노후주택 비율 기반 정비 수요 탐색 순위",
         xaxis_title="정비 수요 탐색지수",yaxis_title="",height=585,
         margin=dict(l=10,r=55,t=55,b=30),showlegend=False,
     )
@@ -165,15 +164,22 @@ with chart_col:
 with rank_col:
     st.markdown("#### # 서울시 구별 정비 수요 우선 탐색 순위")
     st.dataframe(
-        all_priority[["순위","자치구","정비수요탐색지수"]].rename(columns={"정비수요탐색지수":"지수"}),
+        all_priority[["순위","자치구","30년이상노후주택비율","30년이상노후주택수","전체주택수"]].rename(
+            columns={"30년이상노후주택비율":"노후주택 비율","30년이상노후주택수":"30년 이상 노후주택 수","전체주택수":"전체 주택 수"}
+        ),
         hide_index=True,use_container_width=True,height=550,
-        column_config={"지수":st.column_config.NumberColumn(format="%.1f")},
+        column_config={
+            "노후주택 비율":st.column_config.NumberColumn(format="%.1f%%"),
+            "30년 이상 노후주택 수":st.column_config.NumberColumn(format="%d호"),
+            "전체 주택 수":st.column_config.NumberColumn(format="%d호"),
+        },
     )
 with formula_col:
     st.subheader("# 지수 산정식")
-    st.markdown("| 구성요소 | 산정 방법 | 가중치 |\n|---|---|---:|\n| 집중도 | 30년 이상 노후주택 비율의 상대순위 | 50% |\n| 대응 물량 | 30년 이상 노후주택 수의 상대순위 | 50% |")
-    st.code("정비 수요 탐색지수 = 집중도 점수 × 0.5 + 대응 물량 점수 × 0.5")
-    st.caption("본 지수는 30년 이상 노후주택의 집중도(비율)와 정비 대응 물량(수)을 동등하게 반영한 탐색용 상대지수이다. 두 지표의 실증적 중요도 차이를 확인하기 어려워 5:5의 산술 평균 분석 가정을 적용하였다. 상위 5개 자치구는 법정 정비구역 혹은 사업 가능 후보지가 아니라, 추가적인 공간·사업성 조사가 우선적으로 필요한 정비 수요 탐색 지역임을 밝힌다.")
+    st.markdown("| 구성요소 | 산정 방법 | 순위 반영 |\n|---|---|---:|\n| 정비 수요 집중도 | 30년 이상 노후주택 수 ÷ 전체 주택 수 | 100% |\n| 절대 물량 | 30년 이상 노후주택 수 | 참고값 |")
+    st.code("정비 수요 우선 탐색 순위 = 30년 이상 노후주택 수 ÷ 전체 주택 수")
+    st.caption("본 순위는 전체 주택 수 대비 30년 이상 노후주택의 비율을 기준으로 산정한 자치구 단위 정비 수요 집중도 탐색 결과이다. 노후주택의 절대 수는 주택 재고 규모의 영향을 크게 받으므로 순위 산정에는 반영하지 않고 참고지표로 제시하였다. 따라서 본 결과는 법정 정비구역 또는 실제 사업 가능 후보지를 의미하지 않으며, 추가적인 공간·사업성 조사가 필요한 지역을 식별하기 위한 기초 탐색 결과이다.")
+st.caption("원자료 출처: 서울특별시 통계 [건축 경과연수별 주택현황](https://stat.eseoul.go.kr/statHtml/statHtml.do?orgId=201&tblId=DT_201004_K010008&conn_path=I3) 및 [주택종류별 주택](https://stat.eseoul.go.kr/statHtml/statHtml.do?orgId=201&tblId=DT_201004_K010006&conn_path=I3), 2025년 기준.")
 st.caption("참고: 실제 정비사업 가능 여부는 노후도 외에 과소필지, 도로 접도, 호수밀도, 안전성, 정비계획 및 사업성 등을 별도로 검토해야 합니다.")
 
 with st.expander("데이터 출처와 해석"):
