@@ -51,6 +51,19 @@ def line(df,title):
                     legend=dict(orientation="h",y=-.22,x=1,xanchor="right"),height=410)
     return f
 
+def age_ratio_bar(df,title):
+    d=df.groupby(["연도","경과연수"],as_index=False)["노후주택수"].sum()
+    d["노후주택 구성비"] = d["노후주택수"] / d.groupby("연도")["노후주택수"].transform("sum") * 100
+    f=px.bar(d,x="연도",y="노후주택 구성비",color="경과연수",barmode="stack",
+             title=title,color_discrete_map=AC,
+             category_orders={"경과연수":["20년~30년미만","30년 이상"]},
+             text=d["노후주택 구성비"].map(lambda x:f"{x:.1f}%"))
+    f.update_traces(textposition="inside",hovertemplate="<b>%{x}년</b><br>%{fullData.name}: %{y:.1f}%<extra></extra>")
+    f.update_layout(xaxis_title="연도",yaxis_title="노후주택 구성비(%)",legend_title_text="건축연수",
+                    legend=dict(orientation="h",y=-.22,x=1,xanchor="right"),height=410,
+                    yaxis=dict(range=[0,100],ticksuffix="%"))
+    return f
+
 aged,supply=load()
 years=sorted(aged["연도"].unique()); gus=sorted(aged["자치구"].unique())
 st.title("🏚️ 서울시 노후주택 현황 기반 정비 수요 탐색")
@@ -64,9 +77,11 @@ vs=supply[supply["연도"].eq(year)]
 if gu!="서울시 전체": v=v[v["자치구"].eq(gu)];vs=vs[vs["자치구"].eq(gu)]
 
 st.divider()
-title_left,title_middle,title_right=st.columns([1,1.25,1.25])
-with title_left: st.header("🗺️ #1. 서울시 노후주택의 공간적 분포")
-with title_middle: st.header("📊 #2. 자치구별 노후화 주택 유형 구성")
+title_left,title_charts=st.columns([1,2.5])
+with title_left:
+    st.header("🗺️ #1. 서울시 노후주택의 공간적 분포")
+with title_charts:
+    st.markdown("<h2 style='text-align:center;'>📊 #2. 자치구별 노후화 주택 유형 구성</h2>",unsafe_allow_html=True)
 map_col,chart_20_col,chart_30_col=st.columns([1,1.25,1.25])
 
 with map_col:
@@ -115,8 +130,13 @@ st.divider();st.header("📈 #3. 2015년~2025년 노후주택 수 추세")
 l,r=st.columns(2); trend=aged[aged["주택유형"].isin(types)]
 idx=gus.index(gu) if gu in gus else 0
 tgu=st.session_state.get("trend_gu",gus[idx])
-with l: st.plotly_chart(line(trend,"서울시 노후주택 수 추세"),use_container_width=True)
-with r: st.plotly_chart(line(trend[trend["자치구"].eq(tgu)],tgu+" 노후주택 수 추세"),use_container_width=True)
+with l:
+    st.plotly_chart(line(trend,"서울시 노후주택 수 추세"),use_container_width=True)
+with r:
+    st.plotly_chart(
+        age_ratio_bar(trend[trend["자치구"].eq(tgu)],tgu+" 노후주택 연수구간 구성비 추이"),
+        use_container_width=True,
+    )
 st.selectbox("자치구별 추세",gus,index=gus.index(tgu),key="trend_gu")
 
 st.divider();st.header("🎯 #4. 정비 수요 우선 순위 탐색")
