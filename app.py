@@ -68,10 +68,27 @@ left,right=st.columns([1.7,1])
 with left:
     m=v.groupby(["자치구","주택유형"],as_index=False)["노후주택수"].sum()
     m[["위도","경도"]]=m["자치구"].map(GU_CENTROIDS).apply(pd.Series)
-    f=px.scatter_mapbox(m,lat="위도",lon="경도",size="노후주택수",color="주택유형",hover_name="자치구",
-       hover_data={"노후주택수":":,","위도":False,"경도":False},color_discrete_map=TC,
-       category_orders={"주택유형":TYPES},zoom=9.1,center={"lat":37.5665,"lon":126.978},height=455)
-    f.update_layout(mapbox_style="carto-positron",margin=dict(l=0,r=0,t=0,b=0),legend_title_text="주택 유형")
+    f=go.Figure()
+    for housing_type in TYPES:
+        part=m[m["주택유형"].eq(housing_type)]
+        if part.empty:
+            continue
+        f.add_trace(go.Scattergeo(
+            lon=part["경도"], lat=part["위도"], mode="markers", name=housing_type,
+            text=part["자치구"]+"<br>노후주택 수: "+part["노후주택수"].map(lambda x: f"{x:,.0f}")+"호",
+            hovertemplate="%{text}<extra></extra>",
+            marker=dict(
+                size=(part["노후주택수"] / max(m["노후주택수"].max(), 1) * 34 + 8),
+                color=TC[housing_type], opacity=.78, line=dict(color="white", width=1)
+            )
+        ))
+    f.update_geos(
+        projection_type="mercator", center=dict(lat=37.5665, lon=126.978),
+        lataxis_range=[37.42,37.72], lonaxis_range=[126.75,127.2],
+        showland=True, landcolor="#F5F7F7", showocean=True, oceancolor="#E6F5FA",
+        showcountries=False, showcoastlines=False, showframe=False,
+    )
+    f.update_layout(height=455, margin=dict(l=0,r=0,t=0,b=0), legend_title_text="주택 유형")
     st.plotly_chart(f,use_container_width=True)
     st.caption("참고: 원자료는 자치구 단위입니다. 원의 크기는 노후주택 수, 원의 색상은 주택 유형입니다.")
 with right:
