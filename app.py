@@ -82,8 +82,8 @@ with left:
         try:
             boundary=json.loads(geo_path.read_text(encoding="utf-8"))
             layers.insert(0,pdk.Layer("GeoJsonLayer",boundary,stroked=True,filled=True,
-                get_fill_color=[240,248,250,18],get_line_color=[0,0,0,255],
-                get_line_width=850,line_width_min_pixels=5,pickable=False))
+                get_fill_color=[240,248,250,10],get_line_color=[91,107,118,145],
+                get_line_width=110,line_width_min_pixels=1,pickable=False))
         except (json.JSONDecodeError,UnicodeDecodeError):
             pass
     view=pdk.ViewState(latitude=37.5665, longitude=126.9780, zoom=9.7, pitch=0)
