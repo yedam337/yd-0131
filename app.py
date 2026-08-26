@@ -82,7 +82,7 @@ with left:
         try:
             boundary=json.loads(geo_path.read_text(encoding="utf-8"))
             layers.insert(0,pdk.Layer("GeoJsonLayer",boundary,stroked=True,filled=False,
-                get_line_color=[35,52,67,210],get_line_width=160,line_width_min_pixels=2,pickable=False))
+                get_line_color=[0,0,0,255],get_line_width=520,line_width_min_pixels=4,pickable=False))
         except (json.JSONDecodeError,UnicodeDecodeError):
             pass
     view=pdk.ViewState(latitude=37.5665, longitude=126.9780, zoom=9.7, pitch=0)
@@ -121,18 +121,28 @@ st.selectbox("자치구별 추세",gus,index=gus.index(tgu),key="trend_gu")
 
 st.divider();st.header("🎯 #4. 정비 수요 우선 탐색 자치구")
 latest_year=max(years)
-all_priority=score(aged,supply).query("연도 == @latest_year").sort_values("정비수요탐색지수",ascending=False)
+all_priority=score(aged,supply).query("연도 == @latest_year").sort_values("정비수요탐색지수",ascending=False).reset_index(drop=True)
+all_priority["순위"]=all_priority.index+1
 scope=st.radio("도넛 차트 범위",["상위 5개 자치구","전체 25개 자치구"],horizontal=True,key="pie_scope")
 pie_data=all_priority.head(5) if scope=="상위 5개 자치구" else all_priority
-l,r=st.columns([1.25,1])
-with l:
-    f=go.Figure(go.Pie(labels=pie_data["자치구"],values=pie_data["정비수요탐색지수"],hole=.58,
-      textinfo="label+value",texttemplate="%{label}<br>%{value:.1f}"))
-    f.update_layout(title=str(latest_year)+"년 "+scope+" 정비 수요 탐색지수",height=410,showlegend=False)
+pie_colors=["#B71C1C","#D32F2F","#E85D75","#F08A8D","#F6B6A6"] if scope=="상위 5개 자치구" else px.colors.sequential.Reds[3:]
+chart_col,rank_col,formula_col=st.columns([1.15,.65,1.2])
+with chart_col:
+    labels=pie_data["자치구"] if scope=="상위 5개 자치구" else [""]*len(pie_data)
+    textinfo="label+value" if scope=="상위 5개 자치구" else "none"
+    f=go.Figure(go.Pie(labels=labels,values=pie_data["정비수요탐색지수"],customdata=pie_data[["자치구","순위"]],
+      hole=.58,marker_colors=pie_colors,textinfo=textinfo,texttemplate="%{label}<br>%{value:.1f}",
+      hovertemplate="<b>%{customdata[0]}</b><br>순위: %{customdata[1]}위<br>지수: %{value:.1f}<extra></extra>"))
+    f.update_layout(title=str(latest_year)+"년 "+scope+" 정비 수요 탐색지수",height=500,showlegend=False)
     st.plotly_chart(f,use_container_width=True)
-with r:
-    st.subheader("지수 산정식과 해석")
-    st.code("정비 수요 탐색지수 = 30년 이상 노후주택 비율의 상대순위 × 0.5 + 30년 이상 노후주택 수의 상대순위 × 0.5")
+with rank_col:
+    st.subheader("순위")
+    st.dataframe(all_priority[["순위","자치구","정비수요탐색지수"]].rename(columns={"정비수요탐색지수":"지수"}),
+       hide_index=True,use_container_width=True,height=480,column_config={"지수":st.column_config.NumberColumn(format="%.1f")})
+with formula_col:
+    st.subheader("# 지수 산정식")
+    st.markdown("| 구성요소 | 산정 방법 | 가중치 |\n|---|---|---:|\n| 집중도 | 30년 이상 노후주택 비율의 상대순위 | 50% |\n| 대응 물량 | 30년 이상 노후주택 수의 상대순위 | 50% |")
+    st.code("정비 수요 탐색지수 = 집중도 점수 × 0.5 + 대응 물량 점수 × 0.5")
     st.caption("본 지수는 30년 이상 노후주택의 집중도(비율)와 정비 대응 물량(수)을 동등하게 반영한 탐색용 상대지수이다. 두 지표의 실증적 중요도 차이를 확인하기 어려워 5:5의 산술 평균 분석 가정을 적용하였다. 상위 5개 자치구는 법정 정비구역 혹은 사업 가능 후보지가 아니라, 추가적인 공간·사업성 조사가 우선적으로 필요한 정비 수요 탐색 지역임을 밝힌다.")
 st.caption("참고: 실제 정비사업 가능 여부는 노후도 외에 과소필지, 도로 접도, 호수밀도, 안전성, 정비계획 및 사업성 등을 별도로 검토해야 합니다.")
 
