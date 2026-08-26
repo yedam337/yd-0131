@@ -82,7 +82,7 @@ with left:
         try:
             boundary=json.loads(geo_path.read_text(encoding="utf-8"))
             layers.insert(0,pdk.Layer("GeoJsonLayer",boundary,stroked=True,filled=False,
-                get_line_color=[0,0,0,255],get_line_width=520,line_width_min_pixels=4,pickable=False))
+                get_line_color=[0,0,0,255],get_line_width=1000,line_width_min_pixels=8,pickable=False))
         except (json.JSONDecodeError,UnicodeDecodeError):
             pass
     view=pdk.ViewState(latitude=37.5665, longitude=126.9780, zoom=9.7, pitch=0)
@@ -119,26 +119,36 @@ with l: st.plotly_chart(line(trend,"서울시 노후주택 수 추세"),use_cont
 with r: st.plotly_chart(line(trend[trend["자치구"].eq(tgu)],tgu+" 노후주택 수 추세"),use_container_width=True)
 st.selectbox("자치구별 추세",gus,index=gus.index(tgu),key="trend_gu")
 
-st.divider();st.header("🎯 #4. 정비 수요 우선 탐색 자치구")
+st.divider();st.header("🎯 #4. 정비 수요 우선 순위 탐색")
 latest_year=max(years)
 all_priority=score(aged,supply).query("연도 == @latest_year").sort_values("정비수요탐색지수",ascending=False).reset_index(drop=True)
 all_priority["순위"]=all_priority.index+1
-scope=st.radio("도넛 차트 범위",["상위 5개 자치구","전체 25개 자치구"],horizontal=True,key="pie_scope")
-pie_data=all_priority.head(5) if scope=="상위 5개 자치구" else all_priority
-pie_colors=["#B71C1C","#D32F2F","#E85D75","#F08A8D","#F6B6A6"] if scope=="상위 5개 자치구" else px.colors.sequential.Reds[3:]
-chart_col,rank_col,formula_col=st.columns([1.15,.65,1.2])
+scope=st.radio("순위 차트 범위",["상위 5개 자치구","전체 25개 자치구"],horizontal=True,key="rank_scope")
+rank_data=all_priority.head(5) if scope=="상위 5개 자치구" else all_priority
+rank_data=rank_data.sort_values("정비수요탐색지수",ascending=True)
+rank_data["색상"]=px.colors.sample_colorscale("Reds",[.45+.5*i/max(len(rank_data)-1,1) for i in range(len(rank_data))])
+chart_col,rank_col,formula_col=st.columns([1.35,.7,1.15])
 with chart_col:
-    labels=pie_data["자치구"] if scope=="상위 5개 자치구" else [""]*len(pie_data)
-    textinfo="label+value" if scope=="상위 5개 자치구" else "none"
-    f=go.Figure(go.Pie(labels=labels,values=pie_data["정비수요탐색지수"],customdata=pie_data[["자치구","순위"]],
-      hole=.58,marker_colors=pie_colors,textinfo=textinfo,texttemplate="%{label}<br>%{value:.1f}",
-      hovertemplate="<b>%{customdata[0]}</b><br>순위: %{customdata[1]}위<br>지수: %{value:.1f}<extra></extra>"))
-    f.update_layout(title=str(latest_year)+"년 "+scope+" 정비 수요 탐색지수",height=500,showlegend=False)
-    st.plotly_chart(f,use_container_width=True)
+    fig=go.Figure(go.Bar(
+        x=rank_data["정비수요탐색지수"],y=rank_data["자치구"],orientation="h",
+        marker_color=rank_data["색상"],customdata=rank_data[["순위","자치구"]],
+        text=rank_data["순위"].astype(str)+"위  "+rank_data["정비수요탐색지수"].map(lambda x:f"{x:.1f}"),
+        textposition="outside",
+        hovertemplate="<b>%{customdata[1]}</b><br>순위: %{customdata[0]}위<br>탐색지수: %{x:.1f}<extra></extra>",
+    ))
+    fig.update_layout(
+        title=str(latest_year)+"년 "+scope+" 정비 수요 탐색지수",
+        xaxis_title="정비 수요 탐색지수",yaxis_title="",height=540,
+        margin=dict(l=10,r=55,t=55,b=30),showlegend=False,
+    )
+    st.plotly_chart(fig,use_container_width=True)
 with rank_col:
-    st.subheader("순위")
-    st.dataframe(all_priority[["순위","자치구","정비수요탐색지수"]].rename(columns={"정비수요탐색지수":"지수"}),
-       hide_index=True,use_container_width=True,height=480,column_config={"지수":st.column_config.NumberColumn(format="%.1f")})
+    st.subheader("# 서울시 구별 정비 수요 우선 탐색 순위")
+    st.dataframe(
+        all_priority[["순위","자치구","정비수요탐색지수"]].rename(columns={"정비수요탐색지수":"지수"}),
+        hide_index=True,use_container_width=True,height=515,
+        column_config={"지수":st.column_config.NumberColumn(format="%.1f")},
+    )
 with formula_col:
     st.subheader("# 지수 산정식")
     st.markdown("| 구성요소 | 산정 방법 | 가중치 |\n|---|---|---:|\n| 집중도 | 30년 이상 노후주택 비율의 상대순위 | 50% |\n| 대응 물량 | 30년 이상 노후주택 수의 상대순위 | 50% |")
