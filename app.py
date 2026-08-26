@@ -144,28 +144,31 @@ all_priority=score(aged,supply).query("연도 == @latest_year").sort_values("정
 all_priority["순위"]=all_priority.index+1
 scope=st.radio("순위 차트 범위",["상위 5개 자치구","전체 25개 자치구"],horizontal=True,key="rank_scope")
 rank_data=all_priority.head(5) if scope=="상위 5개 자치구" else all_priority
-rank_data=rank_data.sort_values("정비수요탐색지수",ascending=True)
+rank_data=rank_data.sort_values("30년이상노후주택비율",ascending=True)
+rank_data["노후주택비율(%)"]=rank_data["30년이상노후주택비율"]*100
 rank_data["색상"]=px.colors.sample_colorscale("Reds",[.45+.5*i/max(len(rank_data)-1,1) for i in range(len(rank_data))])
 chart_col,rank_col,formula_col=st.columns([1.35,.7,1.15])
 with chart_col:
     fig=go.Figure(go.Bar(
-        x=rank_data["정비수요탐색지수"],y=rank_data["자치구"],orientation="h",
-        marker_color=rank_data["색상"],customdata=rank_data[["순위","자치구"]],
-        text=rank_data["순위"].astype(str)+"위  "+rank_data["정비수요탐색지수"].map(lambda x:f"{x:.1f}"),
+        x=rank_data["노후주택비율(%)"],y=rank_data["자치구"],orientation="h",
+        marker_color=rank_data["색상"],customdata=rank_data[["순위","자치구","30년이상노후주택수","전체주택수"]],
+        text=rank_data["순위"].astype(str)+"위  "+rank_data["노후주택비율(%)"].map(lambda x:f"{x:.1f}%"),
         textposition="outside",
-        hovertemplate="<b>%{customdata[1]}</b><br>순위: %{customdata[0]}위<br>탐색지수: %{x:.1f}<extra></extra>",
+        hovertemplate="<b>%{customdata[1]}</b><br>순위: %{customdata[0]}위<br>30년 이상 노후주택 비율: %{x:.1f}%<br>30년 이상 노후주택 수: %{customdata[2]:,.0f}호<br>전체 주택 수: %{customdata[3]:,.0f}호<extra></extra>",
     ))
     fig.update_layout(
         title=str(latest_year)+"년 "+scope+" 30년 이상 노후주택 비율 기반 정비 수요 탐색 순위",
-        xaxis_title="정비 수요 탐색지수",yaxis_title="",height=585,
+        xaxis_title="30년 이상 노후주택 비율(%)",yaxis_title="",height=585,
         margin=dict(l=10,r=55,t=55,b=30),showlegend=False,
     )
     st.plotly_chart(fig,use_container_width=True)
 with rank_col:
     st.markdown("#### # 서울시 구별 정비 수요 우선 탐색 순위")
     st.dataframe(
-        all_priority[["순위","자치구","30년이상노후주택비율","30년이상노후주택수","전체주택수"]].rename(
-            columns={"30년이상노후주택비율":"노후주택 비율","30년이상노후주택수":"30년 이상 노후주택 수","전체주택수":"전체 주택 수"}
+        all_priority.assign(노후주택비율표시=all_priority["30년이상노후주택비율"]*100)[
+            ["순위","자치구","노후주택비율표시","30년이상노후주택수","전체주택수"]
+        ].rename(
+            columns={"노후주택비율표시":"노후주택 비율","30년이상노후주택수":"30년 이상 노후주택 수","전체주택수":"전체 주택 수"}
         ),
         hide_index=True,use_container_width=True,height=550,
         column_config={
