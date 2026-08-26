@@ -41,7 +41,7 @@ def score(aged,supply):
 def bar(df,age,housing_type,title):
     d=df[df["경과연수"].eq(age)&df["주택유형"].eq(housing_type)]
     f=px.bar(d,x="자치구",y="노후주택수",title=title,color_discrete_sequence=[TC[housing_type]])
-    f.update_layout(xaxis_title="자치구",yaxis_title="노후주택 수(호)",showlegend=False,height=450)
+    f.update_layout(xaxis_title="자치구",yaxis_title="노후주택 수(호)",showlegend=False,height=430, xaxis=dict(tickangle=0,tickfont=dict(size=8),automargin=True))
     return f
 
 def line(df,title):
@@ -63,20 +63,18 @@ v=aged[aged["연도"].eq(year)&aged["주택유형"].isin(types)]
 vs=supply[supply["연도"].eq(year)]
 if gu!="서울시 전체": v=v[v["자치구"].eq(gu)];vs=vs[vs["자치구"].eq(gu)]
 
-st.divider();st.header("🗺️ #1. 서울시 노후주택의 공간적 분포")
-left,right=st.columns([1.7,1])
-with left:
+st.divider();st.header("🗺️ #1. 서울시 노후주택의 공간적 분포 · 📊 #2. 자치구별 노후화 주택 유형 구성")
+map_col,chart_20_col,chart_30_col=st.columns([1,1.25,1.25])
+
+with map_col:
     m=v.groupby(["자치구","주택유형"],as_index=False)["노후주택수"].sum()
     m[["위도","경도"]]=m["자치구"].map(GU_CENTROIDS).apply(pd.Series)
-    color_lookup={name: [int(TC[name][i:i+2], 16) for i in (1, 3, 5)] + [190] for name in TYPES}
+    color_lookup={name: [int(TC[name][i:i+2],16) for i in (1,3,5)]+[190] for name in TYPES}
     m["색상"]=m["주택유형"].map(color_lookup)
-    m["반경"]=(m["노후주택수"]/max(m["노후주택수"].max(),1)*2600+550)
-    layer=pdk.Layer(
-        "ScatterplotLayer", data=m, get_position="[경도, 위도]",
-        get_radius="반경", get_fill_color="색상", pickable=True,
-        stroked=True, get_line_color=[255,255,255,230], line_width_min_pixels=1,
-    )
-    layers=[layer]
+    m["반경"]=(m["노후주택수"]/max(m["노후주택수"].max(),1)*1900+360)
+    dot_layer=pdk.Layer("ScatterplotLayer",data=m,get_position="[경도, 위도]",get_radius="반경",
+        get_fill_color="색상",pickable=True,stroked=True,get_line_color=[255,255,255,230],line_width_min_pixels=1)
+    layers=[dot_layer]
     geo_path=Path(__file__).parent/"data"/"seoul_outer_boundary.geojson"
     if geo_path.exists():
         try:
@@ -86,31 +84,29 @@ with left:
                 get_line_width=240,line_width_min_pixels=2,pickable=False))
         except (json.JSONDecodeError,UnicodeDecodeError):
             pass
-    view=pdk.ViewState(latitude=37.5665, longitude=126.9780, zoom=9.7, pitch=0)
-    st.pydeck_chart(
-        pdk.Deck(layers=layers, initial_view_state=view,
-            map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-            tooltip={"html":"<b>{자치구}</b><br/>{주택유형}<br/>노후주택 수: {노후주택수}호"}),
-        use_container_width=True,height=455)
-    st.caption("참고: 원자료는 자치구 단위입니다. 원의 크기는 노후주택 수, 원의 색상은 주택 유형입니다.")
-with right:
-    n30=v.loc[v["경과연수"].eq("30년 이상"),"노후주택수"].sum()
-    n20=v.loc[v["경과연수"].eq("20년~30년미만"),"노후주택수"].sum()
-    total=vs["전체주택수"].sum()
-    st.metric("30년 이상 노후주택",f"{n30:,.0f}호")
-    st.metric("20년 이상~30년 미만 노후주택",f"{n20:,.0f}호")
-    st.metric("전체 주택 수",f"{total:,.0f}호")
-    st.metric("노후주택 비율",f"{(n30+n20)/total:.1%}" if total else "–")
+    view=pdk.ViewState(latitude=37.5665,longitude=126.9780,zoom=10.25,pitch=0)
+    st.pydeck_chart(pdk.Deck(layers=layers,initial_view_state=view,
+        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+        tooltip={"html":"<b>{자치구}</b><br/>{주택유형}<br/>노후주택 수: {노후주택수}호"}),
+        use_container_width=True,height=430)
+    st.caption("원 크기: 노후주택 수 · 원 색상: 주택 유형")
 
 allv=aged[aged["연도"].eq(year)&aged["주택유형"].isin(types)]
-st.divider();st.header("📊 #2. 자치구별 노후화 주택 유형 구성")
-l,r=st.columns(2)
-with l:
+with chart_20_col:
     type_20=st.radio("주택 유형",TYPES,horizontal=True,key="type_20")
-    st.plotly_chart(bar(allv,"20년~30년미만",type_20,"건축연수 20년 이상~30년 미만: "+type_20),use_container_width=True)
-with r:
+    st.plotly_chart(bar(allv,"20년~30년미만",type_20,"20년 이상~30년 미만: "+type_20),use_container_width=True)
+with chart_30_col:
     type_30=st.radio("주택 유형",TYPES,horizontal=True,key="type_30")
-    st.plotly_chart(bar(allv,"30년 이상",type_30,"건축연수 30년 이상: "+type_30),use_container_width=True)
+    st.plotly_chart(bar(allv,"30년 이상",type_30,"30년 이상: "+type_30),use_container_width=True)
+
+metric_cols=st.columns(4)
+n30=v.loc[v["경과연수"].eq("30년 이상"),"노후주택수"].sum()
+n20=v.loc[v["경과연수"].eq("20년~30년미만"),"노후주택수"].sum()
+total=vs["전체주택수"].sum()
+metric_cols[0].metric("30년 이상 노후주택",f"{n30:,.0f}호")
+metric_cols[1].metric("20년 이상~30년 미만",f"{n20:,.0f}호")
+metric_cols[2].metric("전체 주택 수",f"{total:,.0f}호")
+metric_cols[3].metric("노후주택 비율",f"{(n30+n20)/total:.1%}" if total else "–")
 
 st.divider();st.header("📈 #3. 2015년~2025년 노후주택 수 추세")
 l,r=st.columns(2); trend=aged[aged["주택유형"].isin(types)]
