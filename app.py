@@ -5,89 +5,114 @@ import plotly.graph_objects as go
 import streamlit as st
 from preprocess import GU_CENTROIDS
 
-st.set_page_config(page_title="서울 노후주택 탐색기", page_icon="🏚️", layout="wide")
-st.markdown('''<style>
-@import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Nunito:wght@500;700;800&display=swap');
-html, body, [class*="css"] {font-family: 'Gowun Dodum', sans-serif;}
-.stApp {background:#EAF8FB;} h1,h2,h3 {font-family:'Nunito','Gowun Dodum',sans-serif; color:#263238;}
-div[data-testid="stMetric"] {background:#fff; border-radius:18px; padding:14px; box-shadow:0 2px 9px #b8dce344;}
-div[data-testid="stVerticalBlockBorderWrapper"] {background:#fff; border-radius:22px; border:0; box-shadow:0 2px 9px #b8dce344;}
-</style>''', unsafe_allow_html=True)
+st.set_page_config(page_title="서울시 노후주택 정비 수요 탐색", page_icon="🏚️", layout="wide")
+st.markdown("""<style>
+@import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Nunito:wght@600;700;800&display=swap');
+html,body,[class*="css"]{font-family:'Gowun Dodum',sans-serif}.stApp{background:#EEF9FB}
+h1,h2,h3{font-family:'Nunito','Gowun Dodum',sans-serif;color:#263238}
+[data-testid="stMetric"]{background:#fff;border-radius:18px;padding:15px;box-shadow:0 3px 10px #42808d20}
+</style>""",unsafe_allow_html=True)
 
-DATA = Path(__file__).parent / "data" / "processed"
+DATA=Path(__file__).parent/"data"/"processed"
+TYPES=["아파트","단독주택","다세대주택","연립주택"]
+TC={"아파트":"#D9485F","다세대주택":"#F08A8D","연립주택":"#F6B6A6","단독주택":"#3AA76D"}
+AC={"20년~30년미만":"#F6B6A6","30년 이상":"#D9485F"}
+
 @st.cache_data
-def load_data():
-    return (pd.read_csv(DATA / "aged_housing_by_gu.csv"), pd.read_csv(DATA / "housing_supply_by_gu.csv"),
-            pd.read_csv(DATA / "renewal_supply_priority_by_gu.csv"))
+def load():
+    files=["aged_housing_by_gu.csv","housing_supply_by_gu.csv"]
+    missing=[f for f in files if not (DATA/f).exists()]
+    if missing: raise FileNotFoundError("필수 파일 누락: "+", ".join("data/processed/"+f for f in missing))
+    return (pd.read_csv(DATA/files[0],encoding="utf-8-sig"),
+            pd.read_csv(DATA/files[1],encoding="utf-8-sig"))
 
-aged, supply, priority = load_data()
-TYPE_ORDER = ["아파트", "단독주택", "다세대주택", "연립주택"]
-AGE_COLORS = {"20년~30년미만": "#FFB3A7", "30년 이상": "#E94F4F"}
-TYPE_COLORS = {"아파트":"#8D7AE8", "단독주택":"#88C7E8", "다세대주택":"#F5A5CF", "연립주택":"#F6D86B"}
+def score(aged,supply):
+    old=(aged[aged["경과연수"].eq("30년 이상")].groupby(["연도","자치구"],as_index=False)["노후주택수"].sum()
+         .rename(columns={"노후주택수":"30년이상노후주택수"}))
+    s=old.merge(supply,on=["연도","자치구"])
+    s["30년이상노후주택비율"]=s["30년이상노후주택수"]/s["전체주택수"]
+    s["비율점수"]=s.groupby("연도")["30년이상노후주택비율"].rank(pct=True)*100
+    s["규모점수"]=s.groupby("연도")["30년이상노후주택수"].rank(pct=True)*100
+    s["정비수요탐색지수"]=(s["비율점수"]+s["규모점수"])/2
+    return s
 
-st.title("🏚️ 서울 노후주택 현황 및 정비 추진 계획")
-st.caption("2015–2025년 자치구별 주택 노후화와 공급 규모를 함께 살펴보고 정비·공급 검토 지역을 찾습니다.")
-ctrl1, ctrl2, ctrl3 = st.columns([2, 1, 2])
-with ctrl1: selected_gu = st.selectbox("자치구 선택", ["서울시 전체"] + sorted(aged["자치구"].unique()))
-with ctrl2: year = st.select_slider("연도", options=sorted(aged["연도"].unique()), value=int(aged["연도"].max()))
-with ctrl3: types = st.multiselect("주택 유형", TYPE_ORDER, default=TYPE_ORDER)
+def bar(df,age,title):
+    d=df[df["경과연수"].eq(age)]
+    f=px.bar(d,x="자치구",y="노후주택수",color="주택유형",barmode="group",
+             title=title,category_orders={"주택유형":TYPES},color_discrete_map=TC)
+    f.update_layout(xaxis_title="자치구",yaxis_title="노후주택 수(호)",legend_title_text="주택 유형",
+                    legend=dict(orientation="h",y=-.28,x=1,xanchor="right"),height=450)
+    return f
 
-view_aged = aged[(aged["연도"] == year) & aged["주택유형"].isin(types)].copy()
-view_supply = supply[supply["연도"] == year]
-if selected_gu != "서울시 전체":
-    view_aged = view_aged[view_aged["자치구"] == selected_gu]
-    view_supply = view_supply[view_supply["자치구"] == selected_gu]
+def line(df,title):
+    d=df.groupby(["연도","경과연수"],as_index=False)["노후주택수"].sum()
+    f=px.line(d,x="연도",y="노후주택수",color="경과연수",markers=True,title=title,color_discrete_map=AC)
+    f.update_layout(xaxis_title="연도",yaxis_title="주택 수(호)",legend_title_text="건축연수",
+                    legend=dict(orientation="h",y=-.22,x=1,xanchor="right"),height=410)
+    return f
 
-old30 = view_aged.query("경과연수 == '30년 이상'")["노후주택수"].sum()
-old20 = view_aged["노후주택수"].sum()
-total_supply = view_supply["전체주택수"].sum()
-k1,k2,k3,k4 = st.columns(4)
-k1.metric("30년 이상 노후주택", f"{old30:,.0f}호")
-k2.metric("20년 이상 노후주택", f"{old20:,.0f}호")
-k3.metric("전체 주택 수", f"{total_supply:,.0f}호")
-k4.metric("노후주택 비율", f"{old20/total_supply:.1%}" if total_supply else "–")
+aged,supply=load()
+years=sorted(aged["연도"].unique()); gus=sorted(aged["자치구"].unique())
+st.title("🏚️ 서울시 노후주택 현황 기반 정비 수요 탐색")
+st.caption("💡 2015년~2025년 자치구별 주택 노후도와 주택 규모를 함께 살펴봄으로써 추가적인 공간·사업성 조사가 필요한 정비 수요 탐색 지역을 찾습니다.")
+a,b,c=st.columns([1.4,1,2.2])
+with a: gu=st.selectbox("자치구",["서울시 전체"]+gus)
+with b: year=st.select_slider("연도",options=years,value=max(years))
+with c: types=st.multiselect("주택 유형",TYPES,default=TYPES)
+v=aged[aged["연도"].eq(year)&aged["주택유형"].isin(types)]
+vs=supply[supply["연도"].eq(year)]
+if gu!="서울시 전체": v=v[v["자치구"].eq(gu)];vs=vs[vs["자치구"].eq(gu)]
 
-left, right = st.columns([1.15, 1])
+st.divider();st.header("#1. 서울시 노후주택은 어디에, 무엇이 많은가?")
+left,right=st.columns([1.7,1])
 with left:
-    st.subheader("어디에 어떤 노후주택이 많은가?")
-    map_df = (view_aged.groupby(["자치구", "주택유형", "경과연수"], as_index=False)["노후주택수"].sum())
-    map_df[["위도", "경도"]] = map_df["자치구"].map(GU_CENTROIDS).apply(pd.Series)
-    fig_map = px.scatter_map(map_df, lat="위도", lon="경도", size="노후주택수", color="주택유형",
-        hover_name="자치구", hover_data={"경과연수":True,"노후주택수":":,","위도":False,"경도":False},
-        color_discrete_map=TYPE_COLORS, zoom=9.1, center={"lat":37.5665,"lon":126.9780}, height=450)
-    fig_map.update_layout(map_style="carto-positron", margin=dict(l=0,r=0,t=0,b=0), legend_title_text="주택 유형")
-    st.plotly_chart(fig_map, use_container_width=True)
-    st.caption("원자료의 공간 단위는 자치구입니다. 원의 크기는 노후주택 수, 색은 주택 유형입니다.")
+    m=v.groupby(["자치구","주택유형"],as_index=False)["노후주택수"].sum()
+    m[["위도","경도"]]=m["자치구"].map(GU_CENTROIDS).apply(pd.Series)
+    f=px.scatter_mapbox(m,lat="위도",lon="경도",size="노후주택수",color="주택유형",hover_name="자치구",
+       hover_data={"노후주택수":":,","위도":False,"경도":False},color_discrete_map=TC,
+       category_orders={"주택유형":TYPES},zoom=9.1,center={"lat":37.5665,"lon":126.978},height=455)
+    f.update_layout(mapbox_style="carto-positron",margin=dict(l=0,r=0,t=0,b=0),legend_title_text="주택 유형")
+    st.plotly_chart(f,use_container_width=True)
+    st.caption("참고: 원자료는 자치구 단위입니다. 원의 크기는 노후주택 수, 원의 색상은 주택 유형입니다.")
 with right:
-    st.subheader("유형별 노후화 구성")
-    bar = px.bar(view_aged, x="자치구", y="노후주택수", color="경과연수", facet_col="주택유형",
-                 category_orders={"주택유형":TYPE_ORDER,"경과연수":["20년~30년미만","30년 이상"]},
-                 color_discrete_map=AGE_COLORS, barmode="stack", height=450)
-    bar.update_layout(margin=dict(l=10,r=10,t=35,b=5), legend_title_text="건축 경과연수")
-    bar.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-    st.plotly_chart(bar, use_container_width=True)
+    n30=v.loc[v["경과연수"].eq("30년 이상"),"노후주택수"].sum()
+    n20=v.loc[v["경과연수"].eq("20년~30년미만"),"노후주택수"].sum()
+    total=vs["전체주택수"].sum()
+    st.metric("30년 이상 노후주택",f"{n30:,.0f}호")
+    st.metric("20년 이상~30년 미만 노후주택",f"{n20:,.0f}호")
+    st.metric("전체 주택 수",f"{total:,.0f}호")
+    st.metric("노후주택 비율",f"{(n30+n20)/total:.1%}" if total else "–")
 
-bottom_left, bottom_right = st.columns([1.35, 1])
-with bottom_left:
-    st.subheader("2015–2025 노후주택 추이")
-    trend = aged[aged["주택유형"].isin(types)]
-    if selected_gu != "서울시 전체": trend = trend[trend["자치구"] == selected_gu]
-    trend = trend.groupby(["연도", "경과연수"], as_index=False)["노후주택수"].sum()
-    line = px.line(trend, x="연도", y="노후주택수", color="경과연수", markers=True,
-                   color_discrete_map=AGE_COLORS, category_orders={"경과연수":["20년~30년미만","30년 이상"]})
-    line.update_layout(yaxis_title="주택 수(호)", xaxis_title="", legend_title_text="건축 경과연수", height=350)
-    st.plotly_chart(line, use_container_width=True)
-with bottom_right:
-    st.subheader("정비·공급 검토 우선순위")
-    score = priority[priority["연도"] == year].copy()
-    if selected_gu != "서울시 전체": score = score[score["자치구"] == selected_gu]
-    score = score.sort_values("정비공급우선지수", ascending=False)
-    donut = px.pie(score, names="자치구", values="정비공급우선지수", hole=.62,
-                   color="우선순위", color_discrete_map={"관찰":"#A9DDF0","검토":"#F6D86B","우선 검토":"#E94F4F"})
-    donut.update_layout(height=350, margin=dict(l=0,r=0,t=10,b=0), legend_title_text="판정")
-    st.plotly_chart(donut, use_container_width=True)
+allv=aged[aged["연도"].eq(year)&aged["주택유형"].isin(types)]
+st.divider();st.header("#2. 자치구별 노후화 주택 유형 구성")
+l,r=st.columns(2)
+with l: st.plotly_chart(bar(allv,"20년~30년미만","건축연수 20년 이상~30년 미만"),use_container_width=True)
+with r: st.plotly_chart(bar(allv,"30년 이상","건축연수 30년 이상"),use_container_width=True)
 
-st.info("우선순위 지수는 같은 연도 자치구 간 상대 비교입니다. 노후주택 비율(60%)과 전체 주택 수가 작은 정도(40%)를 결합한 탐색용 지표이며, 실제 사업 선정에는 정비구역·안전진단·인구·토지이용 등 추가 검토가 필요합니다.")
+st.divider();st.header("#3. 2015년~2025년 노후주택 수 추세")
+l,r=st.columns(2); trend=aged[aged["주택유형"].isin(types)]
+with l: st.plotly_chart(line(trend,"서울시 노후주택 수 추세"),use_container_width=True)
+with r:
+    idx=gus.index(gu) if gu in gus else 0
+    tgu=st.selectbox("자치구별 추세",gus,index=idx)
+    st.plotly_chart(line(trend[trend["자치구"].eq(tgu)],tgu+" 노후주택 수 추세"),use_container_width=True)
+
+st.divider();st.header("#4. 정비 수요 우선 탐색 자치구")
+top=score(aged,supply).query("연도 == @year").sort_values("정비수요탐색지수",ascending=False).head(5)
+l,r=st.columns([1.25,1])
+with l:
+    f=go.Figure(go.Pie(labels=top["자치구"],values=top["정비수요탐색지수"],hole=.58,
+      marker_colors=["#D9485F","#E85D75","#F08A8D","#F6B6A6","#A8D8EA"],textinfo="label+value",texttemplate="%{label}<br>%{value:.1f}"))
+    f.update_layout(title=str(year)+"년 정비 수요 탐색지수 상위 5개 자치구",height=410,showlegend=False)
+    st.plotly_chart(f,use_container_width=True)
+with r:
+    st.subheader("지수 산정식과 해석")
+    st.code("정비 수요 탐색지수 = 30년 이상 노후주택 비율의 상대순위 × 0.5 + 30년 이상 노후주택 수의 상대순위 × 0.5")
+    st.caption("본 지수는 30년 이상 노후주택의 집중도(비율)와 정비 대응 물량(수)을 동등하게 반영한 탐색용 상대지수이다. 두 지표의 실증적 중요도 차이를 확인하기 어려워 5:5의 산술 평균 분석 가정을 적용하였다. 상위 5개 자치구는 법정 정비구역 혹은 사업 가능 후보지가 아니라, 추가적인 공간·사업성 조사가 우선적으로 필요한 정비 수요 탐색 지역임을 밝힌다.")
+    st.markdown("참고: 실제 정비사업 가능 여부는 노후도 외에 과소필지, 도로 접도, 호수밀도, 안전성, 정비계획 및 사업성 등을 별도로 검토해야 합니다.")
+
 with st.expander("데이터 출처와 해석"):
-    st.markdown("- 서울특별시 통계: 건축 경과연수별 주택현황 (DT_201004_K010008)\n- 서울특별시 통계: 주택종류별 주택 (DT_201004_K010006)\n- 단위: 호, 빈집 포함. 원자료 기준 20년 이상 주택을 집계했습니다.")
-
+    st.markdown("""- 서울특별시 통계, [건축 경과연수별 주택현황](https://stat.eseoul.go.kr/statHtml/statHtml.do?orgId=201&tblId=DT_201004_K010008&conn_path=I3), 통계표 ID DT_201004_K010008
+- 서울특별시 통계, [주택종류별 주택](https://stat.eseoul.go.kr/statHtml/statHtml.do?orgId=201&tblId=DT_201004_K010006&conn_path=I3), 통계표 ID DT_201004_K010006
+- 서울시, [재개발 사업 및 정비계획 입안 대상 지역 안내](https://cleanup.seoul.go.kr/cleanup/view/redevelop.do)
+- 단위는 호이며 빈집을 포함합니다. 원자료는 20년 이상 주택을 대상으로 집계합니다.""")
